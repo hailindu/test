@@ -2,9 +2,31 @@ import streamlit as st
 import os
 
 # -------------------------------
+# Helper Function to Parse Page Input
+# -------------------------------
+def parse_pages_input(pages_input):
+    """
+    Parses a string input containing individual page numbers and ranges.
+    For example, "13,15-17" becomes [13, 15, 16, 17].
+    """
+    pages = []
+    tokens = pages_input.split(",")
+    for token in tokens:
+        token = token.strip()
+        if "-" in token:
+            try:
+                start, end = token.split("-")
+                start, end = int(start.strip()), int(end.strip())
+                pages.extend(range(start, end + 1))
+            except ValueError:
+                continue
+        elif token.isdigit():
+            pages.append(int(token))
+    return pages
+
+# -------------------------------
 # Placeholder Backend Functions
 # -------------------------------
-
 def perform_gap_analysis(reg_text, policy_text, pages):
     """
     Simulate Gap Analysis: Compare the regulatory and policy documents
@@ -77,7 +99,7 @@ if selected_tab == "📖 Instructions":
     st.markdown("""
     **Gap Analysis & Drafting**
     - Upload the **latest regulatory document** and your **internal policy document**.
-    - Specify the pages (e.g., `3,5,7`) you want to analyze.
+    - Specify the pages (e.g., `3,5,7` or `13-17`) you want to analyze.
     - The tool will compare the documents and draft updated policy language based on identified gaps.
     
     **Q&A (Chatbot)**
@@ -99,8 +121,8 @@ elif selected_tab == "📊 Gap Analysis & Drafting":
     with col2:
         policy_file = st.file_uploader("📂 Upload Internal Policy Document", type=["pdf", "docx", "txt"], key="policy_gap")
     
-    # Page selection input
-    pages_input = st.text_input("Enter pages to analyze (e.g., 3,5,7):", value="")
+    # Add page input widget below the file uploaders
+    pages_input = st.text_input("Enter pages to analyze (e.g., 3,5,7 or 13-17):", value="")
     
     if st.button("Run Gap Analysis", key="btn_gap"):
         if reg_file is None or policy_file is None:
@@ -120,13 +142,8 @@ elif selected_tab == "📊 Gap Analysis & Drafting":
             reg_text = open(reg_path, "r", encoding="utf-8", errors="ignore").read()
             policy_text = open(policy_path, "r", encoding="utf-8", errors="ignore").read()
             
-            # Parse the pages input into a list of integers
-            try:
-                pages = [int(x.strip()) for x in pages_input.split(",") if x.strip().isdigit()]
-            except Exception as e:
-                st.error("Error parsing pages: " + str(e))
-                pages = []
-            
+            # Parse the pages input into a list of integers using the helper function
+            pages = parse_pages_input(pages_input)
             st.write("Selected pages for analysis:", pages)
             
             with st.spinner("Performing gap analysis..."):
@@ -154,7 +171,7 @@ elif selected_tab == "💬 Q&A":
                 qa_path = os.path.join(temp_qa_dir, qa_file.name)
                 with open(qa_path, "wb") as f:
                     f.write(qa_file.getbuffer())
-                # For simplicity, we assume text files; adapt for other formats as needed.
+                # For simplicity, assume text files; adapt for other formats as needed.
                 doc_text = open(qa_path, "r", encoding="utf-8", errors="ignore").read()
             else:
                 doc_text = "No additional context provided."
