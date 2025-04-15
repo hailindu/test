@@ -9,16 +9,12 @@ from llama_index.core import VectorstoreIndex
 from llama_index.core import VectorIndexRetriever, RetrieverQueryEngine
 
 # ============================================================
-# Global Configuration and Simulated Setup
+# Global Configuration
 # ============================================================
+token = "YOUR_API_TOKEN"   # Replace with your actual API token.
+http_client = None         # Replace with your actual http client instance if needed.
 
-# Replace with your actual token
-token = "YOUR_API_TOKEN"
-
-# Replace with an instantiated HTTP client if needed; for now, use None.
-http_client = None  
-
-# Instantiate the primary LLM object for use in some functions.
+# Instantiate the primary LLM object.
 llm = OpenAI(
     api_base="https://aigateway-dev.ms.com/openai/v1/",
     api_key=token,
@@ -32,28 +28,38 @@ llm = OpenAI(
 # ============================================================
 
 def probingQuestions(pages: list, path=os.getcwd()):
-    # Load documents from path and extract text from the given page indices
+    """
+    Generate probing questions based on the text extracted from the specified pages.
+    This function loads documents from the provided path, extracts text based on the page
+    indices, and generates questions. The output is a long string that may contain topics,
+    which are separated by the word "Topic".
+    """
     ref_doc = SimpleDirectoryReader(path).load_data()
     segments = []
     for i in pages:
         if i < len(ref_doc):
             segments.append(ref_doc[i].text)
     segment = "\n".join(segments)
+    
     prompt = (
-        "We have provided context information below about regulatory requirements from PRA:\n"
+        "We have provided the context information below regarding the regulatory requirements from PRA:\n"
         "---------------------\n"
         f"{segment}\n"
         "---------------------\n\n"
-        "Using this context, generate a concise question that asks to identify the key regulatory gaps."
+        "Using this information, generate questions that specifically ask for the key regulatory gaps. "
+        "Format the output with topics if necessary (e.g., 'Topic 1: ...')."
     )
+    
     messages = [
         ChatMessage(role="system", content="You are a helpful AI assistant."),
         ChatMessage(role="user", content=prompt)
     ]
-    probing_questions = llm.chat(messages).message.content
-    # Optionally, if the response contains a separator such as "***", you can split and pick one.
-    probing_questions = probing_questions.split("***")
-    return probing_questions[0]
+    response = llm.chat(messages).message.content
+    # Split by "Topic" so that each topic is isolated (if applicable)
+    topics = response.split("Topic")
+    # Choose the first topic that is non-empty; if none, use the full response.
+    selected_topic = topics[1].strip() if len(topics) > 1 and topics[1].strip() else response
+    return selected_topic
 
 def createRefdocIndex(path, key=token):
     from llama_index.core.ingestion import IngestionPipeline
@@ -76,7 +82,7 @@ def createRefdocIndex(path, key=token):
 def answerfromGovdocs(questions: list) -> list:
     govdoc_responses = []
     retriever = VectorIndexRetriever(
-        index=gov_doc_index,  # global; set during index creation
+        index=gov_doc_index,  # Global index created below.
         similarity_top_k=4,
         response_synthesizer=get_response_synthesizer()
     )
@@ -90,7 +96,7 @@ def answerfromGovdocs(questions: list) -> list:
             "\nAnswer completely based upon the retrieved paragraphs. " +
             "If insufficient, reply 'no such requirement is found.'"
         )
-        time.sleep(0.5)  # simulate latency
+        time.sleep(0.5)  # Simulate API latency.
         reply = gov_query_engine.query(prompt)
         govdoc_responses.append(reply.response)
     print("Gov Doc Answering Done")
@@ -99,7 +105,7 @@ def answerfromGovdocs(questions: list) -> list:
 def answerfromPRAdocs(questions: list) -> list:
     pra_responses = []
     pra_retriever = VectorIndexRetriever(
-        index=pra_doc_index,  # global; set during index creation
+        index=pra_doc_index,  # Global index created below.
         similarity_top_k=2,
         response_synthesizer=get_response_synthesizer()
     )
@@ -108,7 +114,7 @@ def answerfromPRAdocs(questions: list) -> list:
         response_synthesizer=get_response_synthesizer()
     )
     for q in questions:
-        time.sleep(0.5)  # simulate latency
+        time.sleep(0.5)  # Simulate API latency.
         reply = pra_query_engine.query(q)
         pra_responses.append(reply.response)
     print("PRA Doc Answering Done")
@@ -118,7 +124,8 @@ def chunkComparison(gov_answers: list, pra_answers: list, questions: list) -> li
     comparisons = []
     for i in range(len(questions)):
         comp_prompt = (
-            "You are given a set of requirements from PRA and internal policy. Compare them and identify any gaps.\n"
+            "You are given the regulatory requirements from PRA and the internal policy details. "
+            "Compare them and identify any specific requirement in the PRA document that is missing in the internal policy.\n"
             "Question: " + questions[i] +
             "\nPRA Answer: " + pra_answers[i] +
             "\nGovernment Answer: " + gov_answers[i]
@@ -131,7 +138,7 @@ def chunkComparison(gov_answers: list, pra_answers: list, questions: list) -> li
             temperature=0.1
         )
         messages = [
-            ChatMessage(role="system", content="You are a helpful AI assistant focused on gap analysis."),
+            ChatMessage(role="system", content="You are a helpful AI assistant focusing on gap analysis."),
             ChatMessage(role="user", content=comp_prompt)
         ]
         response = llm_temp.chat(messages).message.content
@@ -169,28 +176,26 @@ def agent_chat(prompt):
     return response
 
 # ============================================================
-# Global Index Creation
+# Global Index Creation (Update paths as needed)
 # ============================================================
-# Replace the paths with your actual folders containing the documents.
-gov_doc_index = createRefdocIndex("path/to/govdocs")
-pra_doc_index = createRefdocIndex("path/to/pradocs")
+gov_doc_index = createRefdocIndex("path/to/govdocs")  # Replace with your actual folder path.
+pra_doc_index = createRefdocIndex("path/to/pradocs")  # Replace with your actual folder path.
 
 # ============================================================
 # Streamlit UI Implementation
 # ============================================================
-
 st.set_page_config(page_title="NLP Gap Analysis & Policy Drafting", page_icon="⚖️", layout="wide")
 st.title("NLP Gap Analysis & Policy Drafting Tool")
 st.markdown("""
-This tool compares a latest Regulatory Document with your Internal Policy Document to identify gaps and draft updated language to address them.
+This tool compares a latest Regulatory Document with your Internal Policy Document to identify gaps and to draft updated language to address them.
 """)
 
-# In order to show a default final response (from the agent) even when no analysis has been run,
-# we initialize session state.
+# Initialize session state for final response.
 if "final_response" not in st.session_state:
+    # Call the agent once with a default prompt.
     st.session_state.final_response = agent_chat("What is model risk management?")
 
-# File Uploaders and Input Fields
+# File Uploaders and Input Fields.
 col1, col2 = st.columns(2)
 with col1:
     reg_file = st.file_uploader("Upload Regulatory Document", type=["txt", "pdf", "docx"], key="reg_file")
@@ -198,10 +203,8 @@ with col2:
     policy_file = st.file_uploader("Upload Policy Document", type=["txt", "pdf", "docx"], key="policy_file")
 
 pages_input = st.text_input("Enter pages to analyze (e.g., 3,5,7 or 13-17):", value="1,2")
-test_question = st.text_input("Enter a test question (optional):", 
-                              value="What is model risk management?")
 
-# Run Analysis Button
+# Run Analysis Button.
 if st.button("Run Full Analysis"):
     if reg_file is None or policy_file is None:
         st.error("Please upload both documents before running the analysis.")
@@ -215,21 +218,25 @@ if st.button("Run Full Analysis"):
         with open(policy_path, "wb") as f:
             f.write(policy_file.getbuffer())
         
-        # For this example, we use the provided test question instead of a long multi-topic prompt.
-        test_questions = [test_question.strip()]
+        # Use the probingQuestions function to generate a probing question from the policy document.
+        # You might want to use one or more topics from it.
+        probing_output = probingQuestions([1, 2], path=os.path.dirname(policy_path))
+        # For demonstration, split by "Topic" and select the first topic.
+        topics = probing_output.split("Topic")
+        if len(topics) > 1 and topics[1].strip():
+            selected_topic = topics[1].strip()
+        else:
+            selected_topic = probing_output.strip()
+        questions = [selected_topic]
         
         with st.spinner("Running gap analysis..."):
-            govanswers = answerfromGovdocs(test_questions)
-            praanswers = answerfromPRAdocs(test_questions)
-            # Here, you could also generate a probing question if desired:
-            # allq = probingQuestions(pages, path=os.path.dirname(policy_path))
-            # For simplicity, we use the test question.
-            comparison = chunkComparison(govanswers, praanswers, test_questions)
+            gov_answers = answerfromGovdocs(questions)
+            pra_answers = answerfromPRAdocs(questions)
+            comparison = chunkComparison(gov_answers, pra_answers, questions)
             draft_language = languageGeneration(" ".join(comparison))
             final_response = agent_chat(draft_language)
-        
         st.success("Analysis complete!")
         st.session_state.final_response = final_response
 
-# Always display the final response in the UI.
+# Always show the final response.
 st.text_area("Final Response", st.session_state.final_response, height=300)
