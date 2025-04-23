@@ -1,78 +1,28 @@
-import re
-import time
-from llama_index.core import VectorIndexRetriever, RetrieverQueryEngine
-from llama_index.core import get_response_synthesizer
-
-# -------------------------------------------------------------------
-# Single-query GovDoc retriever with filtering and timing
-# -------------------------------------------------------------------
-def answerfromGovdocs_single(question: str) -> str:
-    # 1. Validate the question length
-    if len(question.strip()) < 10:
-        raise ValueError("Query too short or unclear. Please provide a more detailed question.")
-
-    # 2. Initialize retriever & query engine once
-    retriever = VectorIndexRetriever(
-        index=gov_doc_index,
-        similarity_top_k=2,                  # lower k for speed
-        response_synthesizer=get_response_synthesizer()
-    )
-    gov_query_engine = RetrieverQueryEngine(
-        retriever=retriever,
-        response_synthesizer=get_response_synthesizer()
+def chunkComparison_single(gov_answer: str, pra_answer: str) -> str:
+    """
+    Compare one PRA answer vs. one Government answer and return only
+    the requirements in PRA that are missing in the policy.
+    """
+    # Build a razor-sharp prompt
+    prompt = (
+        "Below are two extracted requirement summaries:\n\n"
+        f"PRA: {pra_answer}\n\n"
+        f"Policy: {gov_answer}\n\n"
+        "List *only* the requirements that appear in the PRA text but are missing from the policy."
     )
 
-    # 3. Run the query and measure time
+    messages = [
+        ChatMessage(role="system", content="You are an expert at policy gap analysis."),
+        ChatMessage(role="user",   content=prompt)
+    ]
+
     start = time.time()
-    reply = gov_query_engine.query(question)
+    response = llm.chat(messages).message.content
     elapsed = time.time() - start
-    print(f"GovDoc query time: {elapsed:.2f}s")
+    print(f"Gap-comparison (single) time: {elapsed:.2f}s")
 
-    # 4. Filter out fallback/no-result responses
-    result = reply.response.strip()
-    if re.search(r'no such requirement', result, re.I):
-        return ""  # return empty to indicate ‘no real answer’
-    return result
+    return response.strip()
 
-# -------------------------------------------------------------------
-# Single-query PRADoc retriever with filtering and timing
-# -------------------------------------------------------------------
-def answerfromPRAdocs_single(question: str) -> str:
-    # 1. Validate the question length
-    if len(question.strip()) < 10:
-        raise ValueError("Query too short or unclear. Please provide a more detailed question.")
+gap = chunkComparison_single(gov_answer, pra_answer)
+print("Identified Gaps:\n", gap)
 
-    # 2. Initialize retriever & query engine once
-    pra_retriever = VectorIndexRetriever(
-        index=pra_doc_index,
-        similarity_top_k=2,                  # lower k for speed
-        response_synthesizer=get_response_synthesizer()
-    )
-    pra_query_engine = RetrieverQueryEngine(
-        retriever=pra_retriever,
-        response_synthesizer=get_response_synthesizer()
-    )
-
-    # 3. Run the query and measure time
-    start = time.time()
-    reply = pra_query_engine.query(question)
-    elapsed = time.time() - start
-    print(f"PRADoc query time: {elapsed:.2f}s")
-
-    # 4. Filter out fallback/no-result responses
-    result = reply.response.strip()
-    # also filter out the “incomplete query” messages
-    if re.search(r'(no such requirement)|(query.*incomplete)', result, re.I):
-        return ""
-    return result
-
-
-# After you’ve built/shortened your prompt into `short_prompt`:
-print("Short Prompt:", short_prompt)
-
-# Call the single-query functions:
-gov_answer = answerfromGovdocs_single(short_prompt)
-pra_answer = answerfromPRAdocs_single(short_prompt)
-
-print("Gov Answer:", gov_answer or "[No relevant answer]")
-print("PRA Answer:", pra_answer or "[No relevant answer]")
