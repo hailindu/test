@@ -26,3 +26,5 @@ def chunkComparison_single(gov_answer: str, pra_answer: str) -> str:
 gap = chunkComparison_single(gov_answer, pra_answer)
 print("Identified Gaps:\n", gap)
 
+reg_probe    = probingQuestions(reg_pages,    path=os.path.dirname(reg_path))
+policy_probe = probingQuestions(policy_pages, path=os.path.dirname(policy_path))
